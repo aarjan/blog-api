@@ -18,10 +18,11 @@ func (t *Tag) GetTag(db *sql.DB) error {
 	}
 
 	// Get all the posts
-	const postQuery = `select posts.* ` +
+	const postQuery = `select posts.*,categories.* ` +
 		`FROM tags ` +
 		`inner join tags_posts on tags.id=tags_posts.tag_id ` +
 		`inner join posts  on tags_posts.post_id=posts.id ` +
+		`inner join categories on categories.id=posts.category_id ` +
 		`where tags.id=$1;`
 	query, err := db.Query(postQuery, t.ID)
 	defer query.Close()
@@ -29,8 +30,10 @@ func (t *Tag) GetTag(db *sql.DB) error {
 		return err
 	}
 	p := Post{}
+	c := &Category{}
 	for query.Next() {
-		query.Scan(&p.ID, &p.Name, &p.Content, &p.CategoryID)
+		query.Scan(&p.ID, &p.Name, &p.Content, &p.CategoryID, &c.ID, &c.Name)
+		p.Cat = c
 		t.Posts = append(t.Posts, p)
 	}
 	return nil
@@ -39,9 +42,8 @@ func (t *Tag) GetTag(db *sql.DB) error {
 func (t *Tag) CreateTag(db *sql.DB) error {
 	const sqlQuery = `INSERT INTO tags (name` +
 		`)VALUES(` +
-		`$1);`
-	_, err := db.Exec(sqlQuery, t.Name)
-	return err
+		`$1) RETURNING id;`
+	return db.QueryRow(sqlQuery, t.Name).Scan(&t.ID)
 }
 
 func GetTags(db *sql.DB) ([]Tag, error) {
@@ -58,4 +60,29 @@ func GetTags(db *sql.DB) ([]Tag, error) {
 		tags = append(tags, t)
 	}
 	return tags, nil
+}
+
+func (c *Tag) Delete(db *sql.DB) error {
+	const sqlQuery = `DELETE FROM public.tags WHERE id=$1`
+	_, err := db.Exec(sqlQuery, c.ID)
+	return err
+}
+
+func (t *Tag) GetTagByName(db *sql.DB) error {
+	const sqlQuery = `SELECT id FROM public.tags WHERE name=$1;`
+	return db.QueryRow(sqlQuery, t.Name).Scan(&t.ID)
+}
+
+func (t *Tag) GetTagByID(db *sql.DB) error {
+	const sqlQuery = `SELECT id FROM public.tags WHERE id=$1;`
+	// TODO: Make it less hacky
+	t1 := Tag{}
+	err := db.QueryRow(sqlQuery, t.ID).Scan(&t1.ID)
+	t.ID = t1.ID
+	return err
+}
+
+func (t *Tag) UpdateTag(db *sql.DB) error {
+	const sqlQuery = `UPDATE tags SET name=$1 WHERE id=$2 RETURNING id,name`
+	return db.QueryRow(sqlQuery, t.Name, t.ID).Scan(&t.ID, &t.Name)
 }
